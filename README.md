@@ -1,6 +1,6 @@
 Everything below applies with these addtions:
-1.  Is capable of sending packets directly to the pebble watch
-2.  keeps the usb open so you can debug through serial, if the usb is plugged in
+1.  Is capable of sending packets directly to the pebble watch<br>
+2.  keeps the usb open so you can debug through serial, if the usb is plugged in<Br>
 
 xDrip for Wixel
 =================
