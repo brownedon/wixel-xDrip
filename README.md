@@ -1,7 +1,11 @@
+Everything below applies with these addtions:
+1.  Is capable of sending packets directly to the pebble watch
+2.  keeps the usb open so you can debug through serial, if the usb is plugged in
+
 xDrip for Wixel
 =================
 
-### What is it?
+## What is it?
 This project can be loaded onto a wixel, it will catch the wireless signals
 sent from a dexcom transmitter, read, break up the different parts, and then send it using UART so it can be
 retransmitted through Bluetooth
