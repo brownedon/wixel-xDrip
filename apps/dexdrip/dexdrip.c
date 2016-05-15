@@ -1,17 +1,7 @@
 /** DEXDRIP Translator:
   == Description ==
-  The app uses the radio_queue libray to receive packets.  It does not
-  transmit any packets.
-
-  The output from this app takes the following format:
-  RAWREADING TRANSMITTERBATTERY WIXELBATTERY
-
-  The green LED indicates that data was just sent
-
-  PLEASE BE SURE TO SET YOUR TRANSMITTER ID BELOW
-
-  == Parameters ==
-radio_channel: See description in radio_link.h.
+  This one is for the WT12 bluetooth module
+  Works with All pebbles
 */
 
 /** Dependencies **************************************************************/
@@ -44,7 +34,7 @@ radio_channel: See description in radio_link.h.
   static XDATA const char transmitter_id[] = "ABCDE";                                               //
 //                                                                                                  //
   static volatile BIT only_listen_for_my_transmitter = 0;                                           //
-// 1 is recommended which 0 means IGNORE transmitter ID                                                                            //
+// 1 is recommended  0 means IGNORE transmitter ID                                                                            //
 //                                                                                                  //
   static volatile BIT status_lights = 1;                                                            //
 // if status_lights = 1; the yellow light flashes while actively scanning                           //
@@ -102,17 +92,15 @@ unsigned char XDATA PM2_BUF[7] = {0x06,0x06,0x06,0x06,0x06,0x06,0x04};
 unsigned char XDATA dmaDesc[8] = {0x00,0x00,0xDF,0xBE,0x00,0x07,0x20,0x42};
 volatile uint8 sequential_missed_packets = 0;
 int statusCount=0;
+int pebbleSendCount=0;
 //Pebble Stuff
 //Note: printf will send packets to the pebble, which will cause communication with it to cease...
 //      So don't do it.  Or plan to reset the watch and powercycle the wixel/bluetooth module. It gets ugly.
-const uint8 pebbleAppMsgStart[6] = {0x00, 0x1e, 0x00, 0x30, 0x01, 0x00};
-const uint8 pebbleAppMsgEnd[8]   ={0x04, 0x08, 0x00, 0x00, 0x00, 0x03, 0x04, 0x00};
+XDATA uint8 pebbleAppMsgStart[6] = {0x00, 0x1e, 0x00, 0x30, 0x01, 0x00};
+XDATA uint8 pebbleAppMsgEnd[8]   ={0x04, 0x08, 0x00, 0x00, 0x00, 0x03, 0x04, 0x00};
 //change this one for your pebble app
 const uint8 pebbleAppUUID[16]    ={0x7f, 0x7a, 0x38, 0x90, 0x1a, 0x1c, 0x43, 0xa3, 0xad, 0xf1, 0x21, 0x44, 0x9e, 0x4f, 0x35, 0x2d};
-//
-#ifdef DEBUG
-const uint8 connectedMsg[30] = {0x00, 0x1a, 0x0b, 0xB8, 0x01, 0x00, 0x09, 0x43, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x65, 0x64, 0x0d, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-#endif
+
 
 typedef struct _Dexcom_packet {
     uint8   len;
@@ -241,7 +229,9 @@ void doServices() {
         boardService();
         usbComService();
 		if(statusCount==0){
-		  //printf(".");
+	      #ifdef DEBUG
+		    printf(".");
+		  #endif
 	      statusCount++;
 		}
 	    else 
@@ -278,9 +268,25 @@ uint32 getSrcValue(char srcVal) {
     return i & 0xFF;
 }
 
+
+
 void sendPacketToPebble(Dexcom_packet* pPkt) {
-	uint32 raw = dex_num_decoder(pPkt->raw);
-    int j=0;
+	//pebble packet examples
+	//                                                      -- Your app UUID --------------------------------------------------------------                                           --payload----------
+	//                                           --length (1b) starts here ------------------------------------------------------------------------------------------------------------------------------
+	//1 byte payload 1b=27  0x00,0x1b,0x00,0x30, 0x01,0x00  0x7f,0x7a,0x38,0x90,0x1a,0x1c,0x43,0xa3,0xad,0xf1,0x21,0x44,0x9e,0x4f,0x35,0x2d  0x04,0x07,0x00,0x00,0x00,0x03,0x01,0x00  0x78
+	//4 byte payload 1e=30  0x00,0x1e,0x00,0x30, 0x01,0x00  0x7f,0x7a,0x38,0x90,0x1a,0x1c,0x43,0xa3,0xad,0xf1,0x21,0x44,0x9e,0x4f,0x35,0x2d  0x04,0x08,0x00,0x00,0x00,0x03,0x04,0x00  0x00,0x00,0x00,0x00
+	uint32 XDATA raw = dex_num_decoder(pPkt->raw);
+	uint8 XDATA batt = pPkt->battery;
+    int XDATA j=0;
+	#ifdef DEBUG
+	  printf("sending data via bluetooth");
+	#endif
+	
+	 pebbleAppMsgStart[1]=0x1e;
+	 pebbleAppMsgEnd[1]=0x08;
+	 pebbleAppMsgEnd[6]=0x04;
+	//send the isig
 	for(j=0;j<6;j++){
       uart1TxSendByte(pebbleAppMsgStart[j]);
     }
@@ -288,44 +294,72 @@ void sendPacketToPebble(Dexcom_packet* pPkt) {
 	for(j=0;j<16;j++){
       uart1TxSendByte(pebbleAppUUID[j]);
     }
-	
+
     for(j=0;j<8;j++){
       uart1TxSendByte(pebbleAppMsgEnd[j]);
     }
+	
+     uart1TxSendByte((int)((raw & 0XFF)));		
+	 uart1TxSendByte((int)((raw >> 8) & 0XFF));
+     uart1TxSendByte((int)((raw >> 16) & 0xFF));
+	 uart1TxSendByte((int)((raw >> 24) & 0xFF));
 
-    uart1TxSendByte((int)((raw & 0XFF)));		
-	uart1TxSendByte((int)((raw >> 8) & 0XFF));
-    uart1TxSendByte((int)((raw >> 16) & 0xFF));
-	uart1TxSendByte((int)((raw >> 24) & 0xFF));
+    if (pebbleSendCount==0)	{
+	  //send battery
+	  pebbleAppMsgEnd[1]=0x07;
+	 
+	  for(j=0;j<6;j++){
+        uart1TxSendByte(pebbleAppMsgStart[j]);
+      }
+    
+	  for(j=0;j<16;j++){
+        uart1TxSendByte(pebbleAppUUID[j]);
+      }
+			
+	   for(j=0;j<8;j++){
+        uart1TxSendByte(pebbleAppMsgEnd[j]);
+      } 
+
+      uart1TxSendByte((int)pPkt->battery);	
+      uart1TxSendByte(0x00);	
+      uart1TxSendByte(0x00);	
+      uart1TxSendByte(0x00);	
+    }
+	pebbleSendCount++;
+	if (pebbleSendCount>50)	{
+		pebbleSendCount=0;
+	}
+	 
 }
 
 void print_packet(Dexcom_packet* pPkt) {
-	//printf("print_packet\n");
+	#ifdef DEBUG
+	  printf("print_packet\n");
+	#endif
 	if(!usbPowerPresent()) {
       uartEnable();
 	}
-    if (pebble)
+    if (pebble){
 	  sendPacketToPebble(pPkt);
-	else{
+      #ifdef DEBUG
+          printf("%lu %lu %lu %hhu %d %hhu %d \r\n", pPkt->src_addr,dex_num_decoder(pPkt->raw),dex_num_decoder(pPkt->filtered)*2, pPkt->battery, getPacketRSSI(pPkt),pPkt->txId,adcConvertToMillivolts(adcRead(0)));
+      #endif
+	}else{
       if((allow_alternate_usb_protocol==0)||!usbPowerPresent()) {
         // Classic 3 field protocol for serial/bluetooth only
-        printf("%lu %hhu %d", dex_num_decoder(pPkt->raw), pPkt->battery, adcConvertToMillivolts(adcRead(0)));
+       // printf("%lu %hhu %d", dex_num_decoder(pPkt->raw), pPkt->battery, adcConvertToMillivolts(adcRead(0)));
       } else {
         // Protocol suitable for dexterity android application or python script when running in USB mode
-        printf("%lu %lu %lu %hhu %d %hhu %d \r\n", pPkt->src_addr,dex_num_decoder(pPkt->raw),dex_num_decoder(pPkt->filtered)*2, pPkt->battery, getPacketRSSI(pPkt),pPkt->txId,adcConvertToMillivolts(adcRead(0)));
-      }
+		#ifdef DEBUG
+          printf("%lu %lu %lu %hhu %d %hhu %d \r\n", pPkt->src_addr,dex_num_decoder(pPkt->raw),dex_num_decoder(pPkt->filtered)*2, pPkt->battery, getPacketRSSI(pPkt),pPkt->txId,adcConvertToMillivolts(adcRead(0)));
+        #endif
+	  }
     }
 	if(!usbPowerPresent()) {
       uartDisable();
     }
 }
 
-void makeAllOutputs() {
-    int XDATA i;
-    for (i=1; i < 16; i++) { // in the future, this should be set to only the channels being used for output, and add the one for input
-        setDigitalOutput(i, LOW);
-    }
-}
 void makeAllOutputsLow() {
     int XDATA i;
     for (i=0; i < 16; i++) {
@@ -334,7 +368,7 @@ void makeAllOutputsLow() {
 }
 
 void reset_offsets() {
-    int i;
+    int XDATA i;
     for(i=0; i<4; i++) {
         fOffset[i] = defaultfOffset[i];
     }
@@ -449,7 +483,7 @@ void goToSleep (int seconds) {
             }
         }
     }
-    makeAllOutputs();
+    makeAllOutputsLow();
 }
 
 void putchar(char c) {
@@ -477,11 +511,10 @@ void strobe_radio(int radio_chan) {
 }
 
 int WaitForPacket(uint16 milliseconds, Dexcom_packet* pkt, uint8 channel) {
-    uint32 start = getMs();
-    uint8 * packet = 0;
-    uint32 i = 0;
-    uint32 six_minutes = 360000;
-    int nRet = 0;
+    uint32 XDATA start = getMs();
+    uint8 XDATA * packet = 0;
+    uint32 XDATA i = 0;
+    int XDATA nRet = 0;
     swap_channel(nChannels[channel], fOffset[channel]);
 
     while (!milliseconds || (getMs() - start) < milliseconds) {
@@ -491,25 +524,31 @@ int WaitForPacket(uint16 milliseconds, Dexcom_packet* pkt, uint8 channel) {
         if(!(i % 40000)) {
             strobe_radio(channel);
         }
-        if(getMs() - start > six_minutes) {
+        if(getMs() - start > 360000) { //six minutes
             killWithWatchdog();
             delayMs(2000);
         }
         if (packet = radioQueueRxCurrentPacket()) {
-            uint8 len = packet[0];
+            uint8 XDATA len = packet[0];
             fOffset[channel] += FREQEST;
             memcpy(pkt, packet, min8(len+2, sizeof(Dexcom_packet)));
             if(radioCrcPassed()) {
-				//printf("crc passed\n");
+				#ifdef DEBUG
+				  printf("crc passed\n");
+				#endif
                 if(pkt->src_addr == dex_tx_id || dex_tx_id == 0 || only_listen_for_my_transmitter == 0) {
-					//printf("id matches\n");
+					#ifdef DEBUG
+					  printf("id matches\n");
+					#endif
                     pkt->txId -= channel;
                     radioQueueRxDoneWithPacket();
                     LED_YELLOW(0);
                     last_catch_channel = channel;
                     return 1;
                 } else {
-					//printf("rejected packet\n");
+					#ifdef DEBUG
+					  printf("rejected packet\n");
+					#endif
                     radioQueueRxDoneWithPacket();
                 }
             } else {
@@ -535,7 +574,7 @@ uint32 delayFor(int wait_chan) {
 }
 
 BIT get_packet(Dexcom_packet* pPkt) {
-    int nChannel = 0;
+    int XDATA nChannel = 0;
     for(nChannel = start_channel; nChannel < NUM_CHANNELS; nChannel++) {
         switch(WaitForPacket(delayFor(nChannel), pPkt, nChannel)) {
         case 1:
@@ -571,7 +610,7 @@ void main() {
     initUart1();
     P1DIR |= 0x08; // RTS
     sleepInit();
-    makeAllOutputs();
+    makeAllOutputsLow();
     setADCInputs();
 
     delayMs(1000);
@@ -588,19 +627,13 @@ void main() {
 	if(usbPowerPresent()) {
 		uartEnable();
     }
-		
-    //printf("Starting\n");
+    #ifdef DEBUG
+      printf("Starting\n");
+	#endif
     while(1) {
-		int i=0;
+		int XDATA i=0;
         Dexcom_packet Pkt;
         memset(&Pkt, 0, sizeof(Dexcom_packet));	
-		
-	    #ifdef DEBUG
-		//connected message to pebble
-        for(i=0;i<30;i++){
-		  uart1TxSendByte(connectedMsg[i]);
-	    }
-	    #endif
 		
         if(get_packet(&Pkt)) {
             print_packet(&Pkt);
@@ -614,9 +647,10 @@ void main() {
             sequential_missed_packets++;
         }
         if(sequential_missed_packets > 0) {
-            int first_square = sequential_missed_packets * sequential_missed_packets * wake_earlier_for_next_miss;
-            int second_square = (sequential_missed_packets - 1) * (sequential_missed_packets - 1) * wake_earlier_for_next_miss;
-            int sleep_time = (268 - first_square + second_square);
+            int XDATA first_square = sequential_missed_packets * sequential_missed_packets * wake_earlier_for_next_miss;
+            int XDATA second_square = (sequential_missed_packets - 1) * (sequential_missed_packets - 1) * wake_earlier_for_next_miss;
+            int XDATA sleep_time = (268 - first_square + second_square);
+
 			if(!usbPowerPresent()) {
               goToSleep(sleep_time);
 			}
